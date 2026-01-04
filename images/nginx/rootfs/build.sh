@@ -18,7 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-export NGINX_VERSION=1.25.5
+export NGINX_VERSION=1.28.1
 
 # Check for recent changes: https://github.com/vision5/ngx_devel_kit/compare/v0.3.3...master
 export NDK_VERSION=v0.3.3
@@ -121,7 +121,13 @@ get_src()
 
   echo "Downloading $url"
 
-  curl -sSL "$url" -o "$f"
+  curl -fsSL \
+    -sS \
+    --retry 8 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --connect-timeout 20 \
+    "$url" -o "$f"
   # TODO: Reenable checksum verification but make it smarter
   # echo "$hash  $f" | sha256sum -c - || exit 10
   if [ ! -z "$dest" ]; then
@@ -189,7 +195,7 @@ mkdir --verbose -p "$BUILD_PATH"
 cd "$BUILD_PATH"
 
 # download, verify and extract the source files
-get_src 66dc7081488811e9f925719e34d1b4504c2801c81dee2920e5452a86b11405ae \
+get_src 40e7a0916d121e8905ef50f2a738b675599e42b2224a582dd938603fed15788e \
         "https://nginx.org/download/nginx-$NGINX_VERSION.tar.gz"
 
 get_src aa961eafb8317e0eb8da37eb6e2c9ff42267edd18b56947384e719b85188f58b \
@@ -413,15 +419,15 @@ Include /etc/nginx/owasp-modsecurity-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTE
 # build nginx
 cd "$BUILD_PATH/nginx-$NGINX_VERSION"
 
-# apply nginx patches
-for PATCH in `ls /patches`;do
+# apply nginx patches (deterministic order)
+while IFS= read -r PATCH; do
   echo "Patch: $PATCH"
   if [[ "$PATCH" == *.txt ]]; then
-    patch -p0 < /patches/$PATCH
+    patch -p0 < "/patches/$PATCH"
   else
-    patch -p1 < /patches/$PATCH
+    patch -p1 < "/patches/$PATCH"
   fi
-done
+done < <(ls -1 /patches | sort)
 
 WITH_FLAGS="--with-debug \
   --with-compat \
